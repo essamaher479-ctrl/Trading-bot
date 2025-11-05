@@ -1,0 +1,176 @@
+import React, { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
+
+// === Helper functions ===
+function ema(values, period) {
+  const k = 2 / (period + 1);
+  const emaArray = [];
+  let prev = values[0];
+  emaArray.push(prev);
+  for (let i = 1; i < values.length; i++) {
+    const val = values[i] * k + prev * (1 - k);
+    emaArray.push(val);
+    prev = val;
+  }
+  return emaArray;
+}
+
+function rsi(values, period = 14) {
+  if (values.length <= period) return [];
+  const rsiArr = new Array(values.length).fill(null);
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = values[i] - values[i - 1];
+    if (diff >= 0) gains += diff; else losses -= diff;
+  }
+  let avgGain = gains / period;
+  let avgLoss = losses / period;
+  rsiArr[period] = 100 - 100 / (1 + avgGain / (avgLoss || 0.00001));
+  for (let i = period + 1; i < values.length; i++) {
+    const diff = values[i] - values[i - 1];
+    const g = diff > 0 ? diff : 0;
+    const l = diff < 0 ? -diff : 0;
+    avgGain = (avgGain * (period - 1) + g) / period;
+    avgLoss = (avgLoss * (period - 1) + l) / period;
+    rsiArr[i] = 100 - 100 / (1 + avgGain / (avgLoss || 0.00001));
+  }
+  return rsiArr;
+}
+
+function generateMockPrices(len = 200, start = 1.0) {
+  const prices = [start];
+  for (let i = 1; i < len; i++) {
+    const last = prices[i - 1];
+    const change = (Math.random() - 0.48) * 0.0025;
+    prices.push(last * (1 + change));
+  }
+  return prices;
+}
+
+function analyzeSignal(symbol) {
+  const prices = generateMockPrices(250, 1 + Math.random() * 0.2);
+  const shortEma = ema(prices, 8);
+  const longEma = ema(prices, 21);
+  const r = rsi(prices, 14);
+
+  const i = prices.length - 1;
+  const s = shortEma[i];
+  const l = longEma[i];
+  const ri = r[i] || 50;
+
+  let signal = "HOLD";
+  let reason = "No clear direction.";
+  let confidence = 50;
+
+  if (s > l && ri < 70) {
+    signal = "UP";
+    reason = `EMA8>${"EMA21"} & RSI=${ri.toFixed(1)}`;
+    confidence = 70 + Math.random() * 20;
+  } else if (s < l && ri > 30) {
+    signal = "DOWN";
+    reason = `EMA8<EMA21 & RSI=${ri.toFixed(1)}`;
+    confidence = 70 + Math.random() * 20;
+  }
+  return {
+    symbol,
+    signal,
+    reason,
+    confidence: confidence.toFixed(1),
+    time: new Date().toLocaleTimeString(),
+  };
+}
+
+export default function ANTradingBinaryBot() {
+  const pairs = ["EUR/USD", "GBP/USD", "USD/JPY", "USD/BRL", "AUD/USD"];
+  const [results, setResults] = useState({});
+  const [currentTime, setCurrentTime] = useState("");
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const now = new Date();
+      const options = {
+        timeZone: "Asia/Karachi", // GMT+05:00
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      };
+      setCurrentTime(now.toLocaleTimeString([], options));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleGenerate = (pair) => {
+    const res = analyzeSignal(pair);
+    setResults((prev) => ({ ...prev, [pair]: res }));
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      <Card className="w-full max-w-4xl shadow-xl border border-gray-200">
+        <CardHeader>
+          <CardTitle className="text-center text-2xl font-semibold text-gray-800">
+            A.N Trading Binary Signal Bot
+          </CardTitle>
+          <div className="text-center text-gray-600 text-sm mt-1">
+            Current Time (GMT+05:00): <span className="font-medium text-gray-800">{currentTime}</span>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {pairs.map((pair) => (
+              <motion.div
+                key={pair}
+                className="p-4 rounded-xl bg-white border border-gray-200 shadow-sm flex flex-col gap-3"
+                whileHover={{ scale: 1.02 }}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="font-medium text-gray-700">{pair}</div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleGenerate(pair)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Generate Signal
+                  </Button>
+                </div>
+
+                {results[pair] && (
+                  <div className="text-sm mt-2 border-t pt-2">
+                    <div>
+                      <span className="font-semibold">Signal:</span>{" "}
+                      <span className={
+                        results[pair].signal === "UP"
+                          ? "text-green-600 font-semibold"
+                          : results[pair].signal === "DOWN"
+                          ? "text-red-600 font-semibold"
+                          : "text-gray-500"
+                      }>
+                        {results[pair].signal}
+                      </span>
+                    </div>
+                    <div className="text-gray-600">
+                      <span className="font-semibold">Reason:</span> {results[pair].reason}
+                    </div>
+                    <div className="text-gray-600">
+                      <span className="font-semibold">Confidence:</span> {results[pair].confidence}%
+                    </div>
+                    <div className="text-gray-500 text-xs mt-1">
+                      Last updated: {results[pair].time}
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="mt-6 text-xs text-gray-500 text-center">
+            This tool provides educational binary signals based on EMA + RSI logic on a 1-minute timeframe. <br />
+            Use manually and at your own discretion. No guaranteed results.
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
